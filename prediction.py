@@ -77,8 +77,13 @@ class Prediction:
     def place_bet(self, bet_size, direction):
         if bet_size is None or direction is None:
             return None
-        bet_functions = {'BULL': self.contract.functions.BetBull, 'BEAR': self.contract.functions.BetBear}
-        return self._build_and_send_tx(bet_functions[direction](bet_size))
+        bet_functions = {'BULL': self.contract.functions.betBull, 'BEAR': self.contract.functions.betBear}
+        return self._build_and_send_tx(
+            bet_functions[direction](),
+            self._get_tx_params() | {
+                'value': self.w3.toWei(bet_size, 'ether')
+            }
+        )
 
     def claim_rewards(self, epoch, gas=120000, gas_price=5):
         if epoch < 0 or not self.contract.functions.claimable(epoch, self.address).call():
@@ -144,7 +149,8 @@ class Prediction:
                         elif receipt['status'] == 0:
                             self.logger.info(f'A {bet_size:.2f} {direction} BNB Bet has not been placed!\n')
                             continue
-                    except:
+                    except Exception as e:
+                        self.logger.info(e)
                         continue
 
             prev_epoch = curr_epoch
