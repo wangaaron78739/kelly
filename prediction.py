@@ -24,8 +24,11 @@ class Prediction:
     gas_price = 5
     gas = 200000
 
-    # logger
+    # settings
     logger = logging.getLogger(__name__)
+    gas_optimizer = True
+    max_wait_seconds = 5
+    gas_sample_size = 50
 
     def __init__(
         self,
@@ -41,6 +44,22 @@ class Prediction:
         self.address = address
         self.private_key = private_key
         self.nonce = self.w3.eth.getTransactionCount(self.address)
+        if self.gas_optimizer:
+            from web3 import middleware
+            from web3.gas_strategies.time_based import construct_time_based_gas_price_strategy
+            
+            self.logger.info(f'Optimizing Gas Price...')
+            self.w3.middleware_onion.inject(middleware.geth_poa_middleware, layer=0)
+            strategy = construct_time_based_gas_price_strategy(self.max_wait_seconds, self.gas_sample_size)
+            self.w3.eth.set_gas_price_strategy(strategy)
+
+            # self.w3.middleware_onion.add(middleware.time_based_cache_middleware)
+            # self.w3.middleware_onion.add(middleware.latest_block_based_cache_middleware)
+            # self.w3.middleware_onion.add(middleware.simple_cache_middleware)
+            
+            self.gas_price = float(self.w3.fromWei(self.w3.eth.generate_gas_price(), 'gwei'))
+            self.logger.info(f'Optimzed Gas Price: {self.gas_price}')
+        
 
     def _load_contract(self, abi_name, address):
         return self.w3.eth.contract(address=address, abi=self._load_abi(abi_name))
@@ -145,9 +164,9 @@ class Prediction:
                         receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
                         if receipt['status'] == 1:
                             bet_on = True
-                            self.logger.info(f'A {bet_size:.2f} {direction} BNB Bet is placed!\n')
+                            self.logger.info(f'A {bet_size:.2f} {direction} BNB Bet is placed!')
                         elif receipt['status'] == 0:
-                            self.logger.info(f'A {bet_size:.2f} {direction} BNB Bet has not been placed!\n')
+                            self.logger.info(f'A {bet_size:.2f} {direction} BNB Bet has not been placed!')
                             continue
                     except Exception as e:
                         self.logger.info(e)
@@ -161,6 +180,7 @@ if __name__ == '__main__':
     
     logging.basicConfig(level = logging.INFO, format=('[%(levelname)s] %(message)s'))
     
-    Prediction(address, private_key).start()
+    prediction = Prediction(address, private_key)
+    prediction.start()
     
     logging.shutdown()
