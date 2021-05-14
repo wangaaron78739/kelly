@@ -15,7 +15,7 @@ class Prediction:
     gas_fee_reserve = 0.1       # bnb reserved for gas fee
     bull_win_rate = 0.50        # bull win rate
     min_prize_pool = 25         # min prize pool size allowed
-    min_bet_size = 0.05         # min bet_size
+    min_bet_size = 0.01         # min bet_size
     kelly_cap = 0.3             # max kelly
     balance_override = 0.2      # balance override (0 = no override)
 
@@ -77,7 +77,7 @@ class Prediction:
             "from": self.address,
             "value": value,
             "gas": self.gas,
-            "gasPrice": self.gas_price,
+            "gasPrice": self.w3.toWei(self.gas_price, 'gwei'),
             "nonce": max(self.nonce, self.w3.eth.getTransactionCount(self.address))
         }
 
@@ -141,10 +141,10 @@ class Prediction:
             bull_amount, bear_amount = rounds[7], rounds[8]
             total_amount = rounds[6]
             
-            if blocks_away > 50:
-                tx_hash = self.claim_rewards(prev_epoch-1)
-                if receipt := self.w3.eth.wait_for_transaction_receipt(tx_hash):
-                    self.logger.info(f"Claim status: {receipt['status']}")
+            # if blocks_away > 50:
+            #     tx_hash = self.claim_rewards(prev_epoch-1)
+            #     if receipt := self.w3.eth.wait_for_transaction_receipt(tx_hash):
+            #         self.logger.info(f"Claim status: {receipt['status']}")
 
             if bull_amount > 0 and bear_amount > 0:
                 bull_odd = (total_amount-self.gas*self.gas_price/2)/bull_amount
@@ -182,5 +182,5 @@ if __name__ == '__main__':
     
     prediction = Prediction(address, private_key)
     prediction.start()
-    
+
     logging.shutdown()
