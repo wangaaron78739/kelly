@@ -4,7 +4,8 @@ import sys
 import os
 import logging
 
-from web3 import Web3
+from web3 import Web3, middleware
+from web3.gas_strategies.time_based import construct_time_based_gas_price_strategy
 
 from config import private_key, address
 
@@ -20,15 +21,14 @@ class Prediction:
     balance_override = 0        # balance override (0 = no override)
 
     # execution params
-    execution_block = 4         # transaction is fired when lock block <= n block away
-    gas_price = 5
-    gas = 200000
+    execution_block = 4         # transaction is fired when lock block - current block <= execution_block
+    gas_price = 5               # default gas price
+    gas = 200000                # default gas quantity
+    max_wait_seconds = 5        # gas optimizer max wait time
+    gas_sample_size = 50        # gas optimizer sample size
 
     # settings
     logger = logging.getLogger(__name__)
-    gas_optimizer = True
-    max_wait_seconds = 5
-    gas_sample_size = 50
     polling_seconds = 1
 
     def __init__(
@@ -36,7 +36,8 @@ class Prediction:
         address,
         private_key,
         bsc="https://bsc-dataseed.binance.org/",
-        contract_address = '0x516ffd7D1e0Ca40b1879935B2De87cb20Fc1124b'
+        contract_address='0x516ffd7D1e0Ca40b1879935B2De87cb20Fc1124b',
+        gas_optimizer=False
     ):
         self.w3 = Web3(Web3.HTTPProvider(bsc))
         if not self.w3.isConnected():
@@ -45,10 +46,7 @@ class Prediction:
         self.address = address
         self.private_key = private_key
         self.nonce = self.w3.eth.getTransactionCount(self.address)
-        if self.gas_optimizer:
-            from web3 import middleware
-            from web3.gas_strategies.time_based import construct_time_based_gas_price_strategy
-            
+        if gas_optimizer:
             self.logger.info(f'Optimizing Gas Price...')
             self.w3.middleware_onion.inject(middleware.geth_poa_middleware, layer=0)
             strategy = construct_time_based_gas_price_strategy(self.max_wait_seconds, self.gas_sample_size)
@@ -136,6 +134,7 @@ class Prediction:
             blocks_away = rounds[2]-self.w3.eth.block_number
             bull_amount, bear_amount = rounds[7], rounds[8]
             total_amount = rounds[6]
+            prize_pool = float(self.w3.fromWei(total_amount, 'ether'))
             
             if blocks_away > 50 and prev_epoch > 0:
                 tx_hash = self.claim_rewards(prev_epoch-1)
@@ -147,13 +146,16 @@ class Prediction:
                 bear_odd = (total_amount-self.gas*self.gas_price/2)/bear_amount
                 
                 bull_kelly, bear_kelly = self.compute_kelly(bull_odd=bull_odd,bear_odd=bear_odd)
-                prize_pool = float(self.w3.fromWei(total_amount, 'ether'))
                 
                 self.logger.info(f'Round: {curr_epoch} | Blocks Away: {blocks_away} | Bull Odds: {bull_odd:.3f} | Bull Kelly: {bull_kelly:.0%} | Bear Odds: {bear_odd:.3f} | Bear Kelly: {bear_kelly:.0%} | Prize Pool: {prize_pool:.3f} | Balance: {balance:.3f}')
+
+                if prize_pool < self.min_prize_pool or not (1 < blocks_away <= self.execution_block):
+                    continue
+                
                 direction = 'Bull' if bull_kelly > bear_kelly else 'Bear'
                 bet_size = balance*min(max(bull_kelly, bear_kelly), self.kelly_cap)
                 
-                if not bet_on and bet_size >= self.min_bet_size and 1 < blocks_away <= self.execution_block and prize_pool > self.min_prize_pool:
+                if not bet_on and bet_size >= self.min_bet_size:
                     try:
                         tx_hash = self.place_bet(bet_size, direction)
                         if tx_hash and (receipt := self.w3.eth.wait_for_transaction_receipt(tx_hash)):
@@ -176,7 +178,7 @@ if __name__ == '__main__':
     
     logging.basicConfig(level = logging.INFO, format=('[%(levelname)s] %(message)s'))
     
-    prediction = Prediction(address, private_key)
+    prediction = Prediction(address, private_key, gas_optimizer=False)
     prediction.start()
 
     logging.shutdown()
