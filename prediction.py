@@ -29,7 +29,7 @@ class Prediction:
 
     # settings
     logger = logging.getLogger(__name__)
-    polling_seconds = 1
+    polling_seconds = 0.5
 
     def __init__(
         self,
@@ -149,7 +149,8 @@ class Prediction:
                 
                 self.logger.info(f'Round: {curr_epoch} | Blocks Away: {blocks_away} | Bull Odds: {bull_odd:.3f} | Bull Kelly: {bull_kelly:.0%} | Bear Odds: {bear_odd:.3f} | Bear Kelly: {bear_kelly:.0%} | Prize Pool: {prize_pool:.3f} | Balance: {balance:.3f}')
 
-                if prize_pool < self.min_prize_pool or not (1 < blocks_away <= self.execution_block):
+                if prize_pool < self.min_prize_pool or not (1 < blocks_away <= self.execution_block):                    
+                    time.sleep(self.polling_seconds)
                     continue
                 
                 direction = 'Bull' if bull_kelly > bear_kelly else 'Bear'
@@ -168,10 +169,8 @@ class Prediction:
                                 continue
                     except Exception as e:
                         self.logger.info(e)
-                        continue
 
             prev_epoch = curr_epoch
-            time.sleep(self.polling_seconds)
 
 
 if __name__ == '__main__':
