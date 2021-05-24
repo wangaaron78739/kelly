@@ -16,8 +16,7 @@ class Prediction:
     gas_fee_reserve = 0.05      # bnb reserved for gas fee
     bull_win_rate = 0.50        # bull win rate
     min_prize_pool = 25         # min prize pool size allowed
-    min_bet_size = 0.01         # min bet_size
-    kelly_cap = 1               # max kelly (1 = no cap)
+    min_kelly = 0.01            # min kelly fraction to ensure positive bet size
     balance_override = 0        # balance override (0 = no override)
 
     # execution params
@@ -55,7 +54,7 @@ class Prediction:
             # self.w3.middleware_onion.add(middleware.time_based_cache_middleware)
             # self.w3.middleware_onion.add(middleware.latest_block_based_cache_middleware)
             # self.w3.middleware_onion.add(middleware.simple_cache_middleware)
-            
+            # BUG: gas price should be decimal instead of float
             self.gas_price = float(self.w3.fromWei(self.w3.eth.generate_gas_price(), 'gwei'))
             self.logger.info(f'Optimzed Gas Price: {self.gas_price}')
         
@@ -132,9 +131,9 @@ class Prediction:
 
             rounds = self.contract.caller.rounds(curr_epoch)
             blocks_away = rounds[2]-self.w3.eth.block_number
-            bull_amount, bear_amount = rounds[7], rounds[8]
-            total_amount = rounds[6]
-            prize_pool = float(self.w3.fromWei(total_amount, 'ether'))
+            bull_amount, bear_amount, reward_amount = rounds[7], rounds[8], rounds[10]
+            prize_pool = float(self.w3.fromWei(reward_amount, 'ether'))
+            gas_fee = self.gas*self.gas_price/2
             
             if blocks_away > 50 and prev_epoch > 0:
                 tx_hash = self.claim_rewards(prev_epoch-1)
@@ -142,10 +141,10 @@ class Prediction:
                     self.logger.info(f"Claim status: {receipt['status']}")
 
             if bull_amount > 0 and bear_amount > 0:
-                bull_odd = (total_amount-self.gas*self.gas_price/2)/bull_amount
-                bear_odd = (total_amount-self.gas*self.gas_price/2)/bear_amount
+                bull_odd = (reward_amount-gas_fee)/bull_amount
+                bear_odd = (reward_amount-gas_fee)/bear_amount
                 
-                bull_kelly, bear_kelly = self.compute_kelly(bull_odd=bull_odd,bear_odd=bear_odd)
+                bull_kelly, bear_kelly = self.compute_kelly(bull_odd, bear_odd)
                 
                 self.logger.info(f'Round: {curr_epoch} | Blocks Away: {blocks_away} | Bull Odds: {bull_odd:.3f} | Bull Kelly: {bull_kelly:.0%} | Bear Odds: {bear_odd:.3f} | Bear Kelly: {bear_kelly:.0%} | Prize Pool: {prize_pool:.3f} | Balance: {balance:.3f}')
 
@@ -153,10 +152,10 @@ class Prediction:
                     time.sleep(self.polling_seconds)
                     continue
                 
-                direction = 'Bull' if bull_kelly > bear_kelly else 'Bear'
-                bet_size = balance*min(max(bull_kelly, bear_kelly), self.kelly_cap)
-                
-                if not bet_on and bet_size >= self.min_bet_size:
+                max_kelly = max(bull_kelly, bear_kelly)
+                if not bet_on and max_kelly >= self.min_kelly:
+                    direction = 'Bull' if bull_kelly > bear_kelly else 'Bear'
+                    bet_size = balance*max_kelly
                     try:
                         tx_hash = self.place_bet(bet_size, direction)
                         if tx_hash and (receipt := self.w3.eth.wait_for_transaction_receipt(tx_hash)):
