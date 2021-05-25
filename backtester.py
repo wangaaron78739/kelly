@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from pathlib import Path
 from itertools import product
@@ -28,6 +28,7 @@ class Backtester(ABC):
         self.df = pd.read_csv(self.csv_path)
         self.df_size = len(self.df)
         self._preprocess_data()
+        sns.set_theme()
     
     def _check_df_size(self) -> None:
         if len(self.df) < 10:
@@ -98,7 +99,10 @@ class Backtester(ABC):
         if self._status == 0:
             print("Please run before plotting")
         if self._status == 1:
-            sns.lineplot(data=self.df, x="epoch", y="capital")
+            fig, ax = plt.subplots(1,2)
+            fig.set_size_inches(15,5)
+            sns.lineplot(data=self.df, x="epoch", y="capital", ax=ax[0])
+            sns.ecdfplot(data=self.returns, ax=ax[1])
             plt.show()
         return self
 
@@ -107,8 +111,7 @@ class Backtester(ABC):
             print("Please run before analytics")
         if self._status == 1:
             win_rate = len(self.df[self.df['bet']==self.df['result']])/len(self.df['bet'])
-            pct_change = self.df['capital'].pct_change()
-            t_test = stats.ttest_1samp(self.df['capital'].pct_change().dropna(), 0)
+            t_test = stats.ttest_1samp(self.returns, 0)
 
             print(f"Betted {len(self.df)} games over {self.df_size} games:\n")
             print(f"Start Epoch:\t{self.df['epoch'].iloc[0]}")
@@ -116,8 +119,8 @@ class Backtester(ABC):
             print(f"Bet Rate:\t{len(self.df)/self.df_size:.0%}")
             print(f"Win Rate:\t{win_rate:.0%}")
             print(f"Return:\t\t{self.df['capital'].iloc[-1]-1:.0%}")
-            print(f"Mean Return:\t{pct_change.mean():.2%}")
-            print(f"Volatility:\t{pct_change.std():.2%}")
+            print(f"Mean Return:\t{self.returns.mean():.2%}")
+            print(f"Volatility:\t{self.returns.std():.2%}")
             print(f"T-Test:\t\t{t_test[0]:.2f}")
             print(f"P-Value:\t{t_test[1]:.2f}")
             print(f"MDD:\t\t{self._get_max_dd(self.df['capital']):.2%}\n")
@@ -131,6 +134,42 @@ class Backtester(ABC):
             output_dir.mkdir(parents=True, exist_ok=True)
             self.df.to_csv(output_dir/output_filename, index=index)
         return self
+
+    @property
+    def returns(self) -> pd.Series:
+        try:
+            return self.df['capital'].pct_change().dropna()
+        except:
+            pass
+
+    @staticmethod
+    def plot_kdes(mapping: dict) -> None:
+        fig, ax = plt.subplots(2,2)
+        fig.set_size_inches(20,10)
+        ax1 = sns.kdeplot(
+            data=mapping, bw_adjust=.3, fill=True,
+            common_norm=False, palette="mako", alpha=.7,
+            clip=[-.4, .4], linewidth=0, ax=ax[0, 0]
+        )
+        ax2 = sns.kdeplot(
+            data=mapping, bw_adjust=.3, cumulative=True,
+            common_norm=False, palette="mako",
+            clip=[-.4, .4], ax=ax[0, 1]
+        )
+        ax3 = sns.lineplot(
+            data={key: np.cumprod(value+1) for key, value in mapping.items()},
+            palette="mako", dashes=False, ax=ax[1, 0]
+        )
+        ax4 = sns.lineplot(
+            data={key: np.cumprod(value+1)/np.cumprod(value+1).cummax()
+                  for key, value in mapping.items()},
+            palette="mako", dashes=False, ax=ax[1, 1]
+        )
+        ax1.legend_._set_loc(2)
+        ax2.legend_._set_loc(2)
+        ax3.legend_._set_loc(2)
+        ax4.legend_._set_loc(2)
+        plt.show()
 
     @staticmethod
     def _get_max_dd(nvs: pd.Series, window=None) -> float:
@@ -152,4 +191,3 @@ class Backtester(ABC):
         params_values = list(params.values())
         dot_product = list(map(list, product(*params_values)))
         return [dict(zip(params_names, v)) for v in dot_product]
-

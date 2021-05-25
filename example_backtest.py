@@ -23,9 +23,14 @@ class StrategyB(Backtester):
 
 
 if __name__ == '__main__':
+    ret_mapping = {}
+
     # backtest -> get statistics -> plot -> save
     bt = StrategyA(csv_path="epoches2k.csv")
     bt.run().analytics().plot().save()
+    ret_mapping |= {
+        'strategyA': bt.returns
+    }
 
     # backtest -> get statistics in a for-loop
     bt = StrategyB(csv_path="epoches2k.csv")
@@ -34,3 +39,8 @@ if __name__ == '__main__':
         vars(bt).update(combo)
         bt.run().analytics()
         print(f"Params:\t\t{combo}\n")
+        ret_mapping |= {
+            'strategyB '+str(combo): bt.returns
+        }
+    
+    Backtester.plot_kdes(ret_mapping)
